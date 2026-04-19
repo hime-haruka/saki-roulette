@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boardgame Admin</title>
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+  <main class="admin-shell">
+    <header class="admin-header">
+      <button id="resetAllBtn" class="ghost">전체 초기화</button>
+    </header>
+
+    <section class="auth-panel panel">
+      <div class="auth-title-wrap">
+        <div>
+          <h2>치지직 연동</h2>
+        </div>
+        <div class="auth-buttons">
+          <a id="loginBtn" class="login-btn" href="/auth/chzzk/login">치지직 로그인</a>
+          <button id="reconnectBtn" class="ghost">재연결</button>
+          <button id="disconnectBtn" class="ghost">연결 해제</button>
+          <button id="logoutBtn" class="ghost">로그아웃</button>
+        </div>
+      </div>
+      <div id="authNotice" class="notice-box is-hidden"></div>
+      <div class="auth-status-grid">
+        <div class="stat-card"><span>로그인</span><strong id="authLoggedIn">-</strong></div>
+        <div class="stat-card"><span>연결 상태</span><strong id="authConnectState">-</strong></div>
+        <div class="stat-card"><span>세션 키</span><strong id="authSessionKey">-</strong></div>
+        <div class="stat-card"><span>채널 ID</span><strong id="authChannelId">-</strong></div>
+        <div class="stat-card span-2"><span>마지막 오류</span><strong id="authLastError">-</strong></div>
+        <div class="stat-card span-2"><span>마지막 실제 후원</span><strong id="authLastDonation">-</strong></div>
+        <div class="stat-card span-2"><span>등록할 콜백 주소</span><strong id="authRedirectUri">-</strong></div>
+      </div>
+    </section>
+
+    <section class="grid-main">
+      <section class="panel panel-sticky">
+        <h2>테스트 후원</h2>
+        <div class="form-grid">
+          <label>
+            <span>후원자 이름</span>
+            <input id="donorName" type="text" value="테스트 후원자" />
+          </label>
+          <label>
+            <span>후원 금액</span>
+            <input id="donationAmount" type="number" value="3000" min="3000" step="1000" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="enqueueDonationBtn">후원 대기열 추가</button>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <h2>활성 벌칙 제어</h2>
+        <div id="punishmentList" class="stack-list"></div>
+      </section>
+
+      <section class="column-stack">
+        <section class="panel">
+          <h2>현재 상태</h2>
+          <div class="stats-grid">
+            <div class="stat-card"><span>큐 길이</span><strong id="queueCount">0</strong></div>
+            <div class="stat-card"><span>총 후원 수</span><strong id="donationCount">0</strong></div>
+            <div class="stat-card"><span>주사위 횟수</span><strong id="diceCount">0</strong></div>
+            <div class="stat-card"><span>현재 위치</span><strong id="positionValue">0</strong></div>
+            <div class="stat-card"><span>공겜 스택</span><strong id="horrorStackValue">0</strong></div>
+            <div class="stat-card"><span>공겜 확정</span><strong id="horrorConfirmedValue">0</strong></div>
+            <div class="stat-card span-2"><span>현재 단계</span><strong id="phaseValue">idle</strong></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>룰렛 확률 설정</h2>
+          <div id="rouletteConfigList" class="stack-list compact-list gauge-control-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>게이지 수동 조정</h2>
+          <div id="gaugeControlList" class="gauge-control-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>로그</h2>
+          <div id="logList" class="stack-list log-list"></div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/admin.js"></script>
+</body>
+</html>

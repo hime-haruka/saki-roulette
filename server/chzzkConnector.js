@@ -1,0 +1,314 @@
+import axios from "axios";
+import socketIoClient from "socket.io-client";
+import { addLog } from "./gameState.js";
+import { enqueueDonation } from "./eventBus.js";
+
+const OPENAPI_BASE = process.env.CHZZK_OPENAPI_BASE || "https://openapi.chzzk.naver.com";
+const SESSION_STATUS = new Map();
+
+function unwrapApiResponse(data) {
+  if (data && typeof data === "object" && "content" in data) {
+    return data.content;
+  }
+  return data;
+}
+
+function createEmptyStatus() {
+  return {
+    isLoggedIn: false,
+    oauthReady: false,
+    connectState: "idle",
+    sessionKey: null,
+    channelId: null,
+    connectedAt: null,
+    lastError: null,
+    lastDonation: null,
+  };
+}
+
+function getState(sessionId) {
+  if (!SESSION_STATUS.has(sessionId)) {
+    SESSION_STATUS.set(sessionId, {
+      ...createEmptyStatus(),
+      socket: null,
+      accessToken: null,
+      refreshToken: null,
+      accessTokenExpiresAt: 0,
+      subscribed: false,
+    });
+  }
+  return SESSION_STATUS.get(sessionId);
+}
+
+function toPublicStatus(state) {
+  return {
+    isLoggedIn: !!state.accessToken,
+    oauthReady: !!state.accessToken,
+    connectState: state.connectState,
+    sessionKey: state.sessionKey,
+    channelId: state.channelId,
+    connectedAt: state.connectedAt,
+    lastError: state.lastError,
+    lastDonation: state.lastDonation,
+    subscribed: !!state.subscribed,
+  };
+}
+
+async function requestToken(body) {
+  const response = await axios.post(
+    `${OPENAPI_BASE}/auth/v1/token`,
+    body,
+    { headers: { "Content-Type": "application/json" } }
+  );
+  return unwrapApiResponse(response.data);
+}
+
+async function revokeToken(token) {
+  if (!token) return;
+  try {
+    await axios.post(
+      `${OPENAPI_BASE}/auth/v1/token/revoke`,
+      {
+        clientId: process.env.CHZZK_CLIENT_ID,
+        clientSecret: process.env.CHZZK_CLIENT_SECRET,
+        token,
+        tokenTypeHint: "access_token",
+      },
+      { headers: { "Content-Type": "application/json" } }
+    );
+  } catch {
+    // ignore revoke failures
+  }
+}
+
+export async function exchangeCodeForToken({ code, state }) {
+  const token = await requestToken({
+    grantType: "authorization_code",
+    clientId: process.env.CHZZK_CLIENT_ID,
+    clientSecret: process.env.CHZZK_CLIENT_SECRET,
+    code,
+    state,
+  });
+
+  return {
+    accessToken: token.accessToken,
+    refreshToken: token.refreshToken,
+    expiresIn: Number(token.expiresIn || 86400),
+    tokenType: token.tokenType || "Bearer",
+  };
+}
+
+async function refreshAccessToken(state) {
+  if (!state.refreshToken) {
+    throw new Error("리프레시 토큰이 없습니다. 다시 로그인해 주세요.");
+  }
+
+  const token = await requestToken({
+    grantType: "refresh_token",
+    refreshToken: state.refreshToken,
+    clientId: process.env.CHZZK_CLIENT_ID,
+    clientSecret: process.env.CHZZK_CLIENT_SECRET,
+  });
+
+  state.accessToken = token.accessToken;
+  state.refreshToken = token.refreshToken;
+  state.accessTokenExpiresAt = Date.now() + Number(token.expiresIn || 86400) * 1000;
+  state.lastError = null;
+  return state.accessToken;
+}
+
+async function ensureAccessToken(state) {
+  if (!state.accessToken) {
+    throw new Error("치지직 로그인이 필요합니다.");
+  }
+
+  if (!state.accessTokenExpiresAt || Date.now() < state.accessTokenExpiresAt - 60_000) {
+    return state.accessToken;
+  }
+
+  return refreshAccessToken(state);
+}
+
+async function getUserSessionUrl(accessToken) {
+  const response = await axios.get(`${OPENAPI_BASE}/open/v1/sessions/auth`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const content = unwrapApiResponse(response.data);
+  return content.url;
+}
+
+async function subscribeDonation(accessToken, sessionKey) {
+  const response = await axios.post(
+    `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+    { sessionKey },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  return unwrapApiResponse(response.data);
+}
+
+function attachSocketHandlers(io, sessionId, state, socket) {
+  socket.on("connect_error", (error) => {
+    state.connectState = "error";
+    state.lastError = error?.message || "치지직 세션 연결 실패";
+    addLog(`[CHZZK] 연결 실패: ${state.lastError}`);
+  });
+
+  socket.on("disconnect", (reason) => {
+    state.connectState = "disconnected";
+    state.subscribed = false;
+    addLog(`[CHZZK] 연결 종료: ${reason}`);
+  });
+
+  socket.on("SYSTEM", async (message) => {
+    const type = message?.type;
+
+    if (type === "connected") {
+      state.sessionKey = message?.data?.sessionKey || null;
+      state.connectState = "authorizing";
+      state.connectedAt = Date.now();
+      addLog("[CHZZK] 세션 연결 완료");
+
+      try {
+        const accessToken = await ensureAccessToken(state);
+        await subscribeDonation(accessToken, state.sessionKey);
+        state.lastError = null;
+      } catch (error) {
+        state.connectState = "error";
+        state.lastError = error?.response?.data?.message || error?.message || "후원 구독 실패";
+        addLog(`[CHZZK] 후원 구독 실패: ${state.lastError}`);
+      }
+      return;
+    }
+
+    if (type === "subscribed") {
+      if (message?.data?.eventType === "DONATION") {
+        state.subscribed = true;
+        state.connectState = "connected";
+        state.channelId = message?.data?.channelId || null;
+        addLog("[CHZZK] 후원 이벤트 구독 완료");
+      }
+      return;
+    }
+
+    if (type === "unsubscribed") {
+      if (message?.data?.eventType === "DONATION") {
+        state.subscribed = false;
+        state.connectState = "idle";
+        addLog("[CHZZK] 후원 이벤트 구독 해제");
+      }
+      return;
+    }
+
+    if (type === "revoked") {
+      state.subscribed = false;
+      state.connectState = "revoked";
+      state.lastError = "치지직 권한이 철회되었습니다. 다시 로그인해 주세요.";
+      addLog("[CHZZK] 권한 회수 감지");
+    }
+  });
+
+  socket.on("DONATION", (message) => {
+    const donorName = String(message?.donatorNickname || "치지직 후원자");
+    const amount = Number(message?.payAmount || 0);
+    const donationText = String(message?.donationText || "");
+
+    state.lastDonation = {
+      donorName,
+      amount,
+      donationText,
+      donationType: message?.donationType || null,
+      receivedAt: Date.now(),
+    };
+
+    addLog(`[CHZZK] ${donorName} ${amount.toLocaleString()}원 후원 수신`);
+    enqueueDonation(io, { donorName, amount });
+  });
+}
+
+export function applyOAuthToSession(sessionId, tokenInfo) {
+  const state = getState(sessionId);
+  state.accessToken = tokenInfo.accessToken;
+  state.refreshToken = tokenInfo.refreshToken;
+  state.accessTokenExpiresAt = Date.now() + Number(tokenInfo.expiresIn || 86400) * 1000;
+  state.lastError = null;
+  return toPublicStatus(state);
+}
+
+export async function connectChzzkForSession(io, sessionId) {
+  const state = getState(sessionId);
+  const accessToken = await ensureAccessToken(state);
+
+  if (state.socket) {
+    try {
+      state.socket.disconnect();
+    } catch {}
+    state.socket = null;
+  }
+
+  state.connectState = "connecting";
+  state.subscribed = false;
+  state.sessionKey = null;
+  state.channelId = null;
+  state.lastError = null;
+
+  const sessionUrl = await getUserSessionUrl(accessToken);
+  const socket = socketIoClient(sessionUrl, {
+    transports: ["websocket"],
+    forceNew: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 2000,
+  });
+
+  state.socket = socket;
+  attachSocketHandlers(io, sessionId, state, socket);
+
+  return toPublicStatus(state);
+}
+
+export async function disconnectChzzkForSession(sessionId, { revoke = false } = {}) {
+  const state = getState(sessionId);
+
+  if (state.socket) {
+    try {
+      state.socket.disconnect();
+    } catch {}
+  }
+
+  if (revoke && state.accessToken) {
+    await revokeToken(state.accessToken);
+  }
+
+  SESSION_STATUS.set(sessionId, {
+    ...createEmptyStatus(),
+    socket: null,
+    accessToken: revoke ? null : state.accessToken,
+    refreshToken: revoke ? null : state.refreshToken,
+    accessTokenExpiresAt: revoke ? 0 : state.accessTokenExpiresAt,
+    subscribed: false,
+  });
+
+  addLog(revoke ? "[CHZZK] 로그아웃 완료" : "[CHZZK] 연결 해제 완료");
+  return toPublicStatus(getState(sessionId));
+}
+
+export function clearSessionOauth(sessionId) {
+  const state = getState(sessionId);
+  state.accessToken = null;
+  state.refreshToken = null;
+  state.accessTokenExpiresAt = 0;
+  state.subscribed = false;
+  state.connectState = "idle";
+}
+
+export function getChzzkStatus(sessionId) {
+  return toPublicStatus(getState(sessionId));
+}

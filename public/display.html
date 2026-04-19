@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0" />
+  <title>Display</title>
+  <link rel="stylesheet" href="/css/display.css" />
+</head>
+<body>
+  <main id="scene" class="scene">
+    <img class="layer layer-full" src="/assets/board.png" alt="" />
+    <img class="layer layer-full" src="/assets/score.png" alt="" />
+
+    <img src="/assets/cursor.png" class="board-pointer" id="boardPointer" alt="" />
+
+    <section id="overlayStack" class="overlay-stack" aria-label="활성 벌칙"></section>
+    <section id="toastLayer" class="toast-layer" aria-label="알림"></section>
+
+    <section class="gauges-panel" aria-label="게이지">
+      <div id="gaugeRows" class="gauge-rows"></div>
+    </section>
+
+    <section id="roulettePopup" class="roulette-value is-hidden" aria-label="룰렛 결과">
+      <img class="popup-bg roulette-bg" src="/assets/roulette.png" alt="" />
+      <div id="rouletteIcon" class="roulette-icon">
+        <span>🍋</span><span>🍋</span><span>🍋</span>
+      </div>
+    </section>
+
+    <section id="dicePopup" class="dice-value is-hidden" aria-label="주사위 결과">
+      <img class="popup-bg dice-bg" src="/assets/dice.png" alt="" />
+      <div id="dicePips" class="dice-pips dice-face-1"></div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/display.js"></script>
+</body>
+</html>
