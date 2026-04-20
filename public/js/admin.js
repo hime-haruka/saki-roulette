@@ -1,4 +1,19 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket"],
+  upgrade: false,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1500,
+  timeout: 10000,
+});
+
+socket.on("connect_error", (error) => {
+  showNotice(`관리자 소켓 연결 실패: ${error?.message || "알 수 없는 오류"}`, true);
+});
+
+socket.on("disconnect", (reason) => {
+  showNotice(`관리자 소켓 연결 종료: ${reason}`, true);
+});
 
 const donorNameEl = document.getElementById("donorName");
 const donationAmountEl = document.getElementById("donationAmount");

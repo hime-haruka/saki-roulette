@@ -1,4 +1,19 @@
-const socket = io();
+const socket = io({
+  transports: ["websocket"],
+  upgrade: false,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1500,
+  timeout: 10000,
+});
+
+socket.on("connect_error", (error) => {
+  console.error("[display] socket connect error", error?.message || error);
+});
+
+socket.on("disconnect", (reason) => {
+  console.warn("[display] socket disconnected", reason);
+});
 
 const pointerEl = document.getElementById("boardPointer");
 const overlayStackEl = document.getElementById("overlayStack");
