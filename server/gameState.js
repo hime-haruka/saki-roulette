@@ -83,7 +83,7 @@ export const gameState = {
   },
 
   config: {
-    minDonation: 1,
+    minDonation: 3000,
     gaugeMax: 100,
     diceFaces: [1, 2, 3, 4, 5, 6],
     rouletteItems: clone(DEFAULT_ROULETTE_ITEMS),
