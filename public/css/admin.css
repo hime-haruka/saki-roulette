@@ -17,8 +17,6 @@ body {
   gap: 16px;
   margin-bottom: 20px;
 }
-.admin-header h1 { margin: 0 0 6px; font-size: 32px; }
-.admin-header p { margin: 0; color: rgba(255,255,255,0.72); }
 .panel {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.08);
@@ -38,11 +36,8 @@ body {
   align-items: center;
   margin-bottom: 10px;
 }
-.auth-title-wrap h2 {
-  margin: 0;
-}
+.auth-title-wrap h2 { margin: 0; }
 .auth-buttons { display:flex; gap:10px; flex-wrap:wrap; }
-.muted { margin:6px 0 0; color: rgba(255,255,255,0.68); }
 .notice-box {
   margin: 0 0 14px;
   padding: 12px 14px;
@@ -68,6 +63,16 @@ body {
 .column-stack { display:flex; flex-direction:column; gap:20px; }
 .panel-sticky { position: sticky; top: 20px; align-self: start; }
 .panel h2 { margin:0 0 14px; font-size: 20px; }
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.panel-head h2 {
+  margin: 0;
+}
 .form-grid { display:grid; grid-template-columns:1fr; gap:14px; }
 label span {
   display:block; margin-bottom:8px; font-size:14px; color: rgba(255,255,255,0.78);
@@ -93,12 +98,22 @@ button,
   justify-content: center;
 }
 button.ghost { background: rgba(255,255,255,.12); }
-button.small { height:34px; padding:0 10px; font-size:13px; }
+button.small {
+  height:34px;
+  padding:0 10px;
+  font-size:13px;
+}
 .section-divider { height:1px; background: rgba(255,255,255,0.08); margin:18px 0; }
 .stat-card {
-  padding:14px; border-radius:14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
-  min-height: 60px;
-  display: flex; justify-content: space-between; align-items: center;
+  padding:14px;
+  border-radius:14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  min-height: 76px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
 }
 .stat-card span { display:block; font-size:13px; color: rgba(255,255,255,0.68);}
 .stat-card strong {
@@ -106,6 +121,7 @@ button.small { height:34px; padding:0 10px; font-size:13px; }
   line-height: 1.4;
   display:block;
   overflow-wrap: anywhere;
+  text-align: right;
 }
 .stat-card.span-2 { grid-column: span 2; }
 .stack-list { display:flex; flex-direction:column; gap:10px; }
@@ -120,17 +136,15 @@ button.small { height:34px; padding:0 10px; font-size:13px; }
 .card small { display:block; opacity:.68; margin-bottom:6px; }
 .card strong { display:block; margin-bottom:4px; }
 .card button { margin-top:10px; width:100%; }
+.card .multiline {
+  white-space: pre-line;
+  word-break: break-word;
+}
 .inline-row {
   display:grid; grid-template-columns: 1fr 92px 80px; gap:8px; align-items:center;
 }
 .inline-input { height: 36px; padding: 0 10px; }
 .gauge-control-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
-.gauge-control-grid .card .flex-box {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .actions { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-top:10px; }
 
 @media (max-width: 1180px) {
@@ -140,5 +154,6 @@ button.small { height:34px; padding:0 10px; font-size:13px; }
   .auth-status-grid,
   .stats-grid { grid-template-columns: 1fr; }
   .stat-card.span-2 { grid-column: span 1; }
-  .auth-title-wrap { flex-direction:column; }
+  .auth-title-wrap,
+  .panel-head { flex-direction:column; align-items:flex-start; }
 }

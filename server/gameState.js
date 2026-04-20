@@ -1,3 +1,5 @@
+import axios from "axios";
+
 const BOARD_ITEMS = [
   { key: "extend", label: "방송 1분 연장", kind: "timer", durationSec: 60 },
   { key: "aegyo", label: "애교 대사", kind: "line", linePoolKey: "aegyo" },
@@ -22,19 +24,28 @@ const DEFAULT_ROULETTE_ITEMS = [
   { icon: "💣💣💣", value: 0, weight: 5.95 },
 ];
 
-const LINE_TEXT_POOLS = {
+const DEFAULT_LINE_TEXT_POOLS = {
   aegyo: [
     "5초 동안 애교 섞어서 인사하기",
     "하트 세 번 보내면서 감사 인사하기",
     "말 끝마다 사랑 붙이기",
-    "가장 귀여운 목소리로 자기소개하기"
+    "가장 귀여운 목소리로 자기소개하기",
   ],
   blame: [
     "3초 동안 츤데레 말투로 혼내기",
     "장난스럽게 한마디 하기",
     "시청자에게 농담식으로 투덜대기",
-    "도도한 말투로 반응해주기"
-  ]
+    "도도한 말투로 반응해주기",
+  ],
+};
+
+const LINE_SHEET_URLS = {
+  aegyo:
+    process.env.LINE_SHEET_AEGYO_URL ||
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQYdgJl0NssjIFPmxcajkgHEKaI03lFknP94a_Q0ZPrA8WHV271uUSuDvk_2aXrdlr5JYzLmiq5gpFq/pub?gid=0&single=true&output=csv",
+  blame:
+    process.env.LINE_SHEET_BLAME_URL ||
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQYdgJl0NssjIFPmxcajkgHEKaI03lFknP94a_Q0ZPrA8WHV271uUSuDvk_2aXrdlr5JYzLmiq5gpFq/pub?gid=1082447927&single=true&output=csv",
 };
 
 let punishmentSeq = 1;
@@ -45,7 +56,24 @@ function clone(v) {
 }
 
 function createInitialGauges() {
-  return Object.fromEntries(BOARD_ITEMS.map(item => [item.key, 0]));
+  return Object.fromEntries(BOARD_ITEMS.map((item) => [item.key, 0]));
+}
+
+function createInitialLineTextState() {
+  return {
+    pools: clone(DEFAULT_LINE_TEXT_POOLS),
+    source: {
+      aegyo: LINE_SHEET_URLS.aegyo,
+      blame: LINE_SHEET_URLS.blame,
+    },
+    counts: {
+      aegyo: DEFAULT_LINE_TEXT_POOLS.aegyo.length,
+      blame: DEFAULT_LINE_TEXT_POOLS.blame.length,
+    },
+    lastLoadedAt: null,
+    lastError: null,
+    isLoadedFromRemote: false,
+  };
 }
 
 export const gameState = {
@@ -81,6 +109,8 @@ export const gameState = {
     currentDice: null,
   },
 
+  lineTexts: createInitialLineTextState(),
+
   activePunishments: [],
   logs: [],
 };
@@ -100,6 +130,7 @@ export function getPublicState() {
     boardItems: gameState.boardItems,
     board: gameState.board,
     runtime: gameState.runtime,
+    lineTexts: getLineTextPoolsStatus(),
     activePunishments: gameState.activePunishments,
     logs: gameState.logs,
   };
@@ -119,27 +150,176 @@ export function getRouletteItems() {
 
 export function setRouletteItems(items) {
   if (!Array.isArray(items) || !items.length) return;
-  gameState.config.rouletteItems = items.map(item => ({
+  gameState.config.rouletteItems = items.map((item) => ({
     icon: String(item.icon ?? "🍋🍋🍋"),
     value: Number(item.value ?? 0),
     weight: Number(item.weight ?? 0),
   }));
 }
 
+function normalizeBool(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["true", "1", "y", "yes", "on"].includes(normalized);
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") {
+        i += 1;
+      }
+      row.push(field);
+      field = "";
+      if (row.some((cell) => String(cell).length > 0)) {
+        rows.push(row);
+      }
+      row = [];
+      continue;
+    }
+
+    field += char;
+  }
+
+  row.push(field);
+  if (row.some((cell) => String(cell).length > 0)) {
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const headers = rows[0].map((header) => String(header || "").trim());
+  return rows.slice(1).map((values) => {
+    const item = {};
+    headers.forEach((header, index) => {
+      item[header] = values[index] ?? "";
+    });
+    return item;
+  });
+}
+
+async function fetchCsvRows(url) {
+  const response = await axios.get(url, {
+    responseType: "text",
+    transformResponse: [(data) => data],
+    timeout: 15000,
+  });
+  return parseCsv(String(response.data || ""));
+}
+
+function buildPoolFromRows(rows) {
+  return rows
+    .filter((row) => normalizeBool(row.enabled))
+    .map((row) => ({
+      order: Number(row.order || 0),
+      text: String(row.text ?? "").trim(),
+    }))
+    .filter((row) => row.text.length > 0)
+    .sort((a, b) => a.order - b.order)
+    .map((row) => row.text);
+}
+
+export async function loadLineTextPools() {
+  const nextPools = clone(DEFAULT_LINE_TEXT_POOLS);
+
+  try {
+    const [aegyoRows, blameRows] = await Promise.all([
+      fetchCsvRows(LINE_SHEET_URLS.aegyo),
+      fetchCsvRows(LINE_SHEET_URLS.blame),
+    ]);
+
+    const aegyoPool = buildPoolFromRows(aegyoRows);
+    const blamePool = buildPoolFromRows(blameRows);
+
+    if (aegyoPool.length) nextPools.aegyo = aegyoPool;
+    if (blamePool.length) nextPools.blame = blamePool;
+
+    gameState.lineTexts.pools = nextPools;
+    gameState.lineTexts.counts = {
+      aegyo: nextPools.aegyo.length,
+      blame: nextPools.blame.length,
+    };
+    gameState.lineTexts.lastLoadedAt = Date.now();
+    gameState.lineTexts.lastError = null;
+    gameState.lineTexts.isLoadedFromRemote = true;
+    usedLineTextByPool.clear();
+
+    addLog(
+      `[LINES] 시트 새로고침 완료 (애교 ${nextPools.aegyo.length}개 / 매도 ${nextPools.blame.length}개)`
+    );
+
+    return getLineTextPoolsStatus();
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      "대사 시트를 불러오지 못했습니다.";
+
+    gameState.lineTexts.lastError = message;
+
+    if (!gameState.lineTexts.lastLoadedAt) {
+      gameState.lineTexts.pools = clone(DEFAULT_LINE_TEXT_POOLS);
+      gameState.lineTexts.counts = {
+        aegyo: gameState.lineTexts.pools.aegyo.length,
+        blame: gameState.lineTexts.pools.blame.length,
+      };
+      gameState.lineTexts.isLoadedFromRemote = false;
+    }
+
+    addLog(`[LINES] 시트 새로고침 실패: ${message}`);
+    throw error;
+  }
+}
+
 export function getLineText(poolKey) {
-  const pool = LINE_TEXT_POOLS[poolKey] || [];
+  const pool = gameState.lineTexts.pools[poolKey] || [];
   if (!pool.length) return "대사 텍스트 없음";
 
   const used = usedLineTextByPool.get(poolKey) || new Set();
-  const available = pool.filter(text => !used.has(text));
+  const available = pool.filter((text) => !used.has(text));
   const source = available.length ? available : pool;
   const picked = source[Math.floor(Math.random() * source.length)];
 
-  if (!available.length) used.clear();
+  if (!available.length) {
+    used.clear();
+  }
 
   used.add(picked);
   usedLineTextByPool.set(poolKey, used);
   return picked;
+}
+
+export function getLineTextPoolsStatus() {
+  return {
+    counts: clone(gameState.lineTexts.counts),
+    source: clone(gameState.lineTexts.source),
+    lastLoadedAt: gameState.lineTexts.lastLoadedAt,
+    lastError: gameState.lineTexts.lastError,
+    isLoadedFromRemote: gameState.lineTexts.isLoadedFromRemote,
+  };
 }
 
 export function resetAllState() {

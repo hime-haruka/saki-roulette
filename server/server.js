@@ -7,7 +7,12 @@ import dotenv from "dotenv";
 import session from "express-session";
 import { Server } from "socket.io";
 
-import { getPublicState, addLog } from "./gameState.js";
+import {
+  getPublicState,
+  addLog,
+  loadLineTextPools,
+  getLineTextPoolsStatus,
+} from "./gameState.js";
 import { registerSocketEvents, removeCompletedAndExpired } from "./eventBus.js";
 import {
   applyOAuthToSession,
@@ -52,6 +57,27 @@ app.use(express.urlencoded({ extended: false }));
 
 app.get("/api/state", (req, res) => {
   res.json(getPublicState());
+});
+
+app.get("/api/line-texts/status", (req, res) => {
+  res.json({
+    ok: true,
+    ...getLineTextPoolsStatus(),
+  });
+});
+
+app.post("/api/line-texts/reload", async (req, res) => {
+  try {
+    const status = await loadLineTextPools();
+    io.emit("state:update", getPublicState());
+    res.json({ ok: true, status });
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      "대사 시트 새로고침 실패";
+    res.status(500).json({ ok: false, message });
+  }
 });
 
 app.get("/api/chzzk/status", (req, res) => {
@@ -144,11 +170,22 @@ setInterval(() => {
   removeCompletedAndExpired(io);
 }, 1000);
 
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Display: http://localhost:${PORT}/display.html`);
-  console.log(`Admin:   http://localhost:${PORT}/admin.html`);
-  if (missingEnv.length) {
-    console.warn(`Missing env vars: ${missingEnv.join(", ")}`);
+async function bootstrap() {
+  try {
+    await loadLineTextPools();
+    console.log("[LINES] Google Sheets line text pools loaded.");
+  } catch (error) {
+    console.warn("[LINES] Failed to load Google Sheets line text pools on startup.");
   }
-});
+
+  server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Display: http://localhost:${PORT}/display.html`);
+    console.log(`Admin:   http://localhost:${PORT}/admin.html`);
+    if (missingEnv.length) {
+      console.warn(`Missing env vars: ${missingEnv.join(", ")}`);
+    }
+  });
+}
+
+bootstrap();

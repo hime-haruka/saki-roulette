@@ -13,6 +13,12 @@ const horrorStackValueEl = document.getElementById("horrorStackValue");
 const horrorConfirmedValueEl = document.getElementById("horrorConfirmedValue");
 const phaseValueEl = document.getElementById("phaseValue");
 
+const lineCountAegyoEl = document.getElementById("lineCountAegyo");
+const lineCountBlameEl = document.getElementById("lineCountBlame");
+const lineLastLoadedAtEl = document.getElementById("lineLastLoadedAt");
+const lineDbStateEl = document.getElementById("lineDbState");
+const reloadLineDbBtn = document.getElementById("reloadLineDbBtn");
+
 const punishmentListEl = document.getElementById("punishmentList");
 const logListEl = document.getElementById("logList");
 const rouletteConfigListEl = document.getElementById("rouletteConfigList");
@@ -60,6 +66,25 @@ logoutBtn.addEventListener("click", async () => {
   showNotice("치지직 로그아웃을 완료했습니다.", false);
 });
 
+reloadLineDbBtn.addEventListener("click", async () => {
+  reloadLineDbBtn.disabled = true;
+  reloadLineDbBtn.textContent = "불러오는 중...";
+  try {
+    const response = await fetch("/api/line-texts/reload", { method: "POST" });
+    const data = await response.json();
+    if (!data.ok) {
+      throw new Error(data.message || "대사 DB 새로고침 실패");
+    }
+    showNotice("대사 DB를 새로 불러왔습니다.", false);
+    await refreshLineDbStatus();
+  } catch (error) {
+    showNotice(error?.message || "대사 DB 새로고침 실패", true);
+  } finally {
+    reloadLineDbBtn.disabled = false;
+    reloadLineDbBtn.textContent = "새로고침";
+  }
+});
+
 socket.on("state:update", (state) => {
   latestState = state;
   queueCountEl.textContent = state.runtime?.queue?.length ?? 0;
@@ -74,6 +99,7 @@ socket.on("state:update", (state) => {
   renderGaugeControls(state.boardItems || [], state.board?.gauges || {}, state.config?.gaugeMax || 100);
   renderPunishments(state.activePunishments || []);
   renderLogs(state.logs || []);
+  renderLineDbFromState(state.lineTexts || {});
 });
 
 function formatConnectState(value) {
@@ -112,6 +138,21 @@ async function refreshAuthStatus() {
   hideNotice();
 }
 
+async function refreshLineDbStatus() {
+  const response = await fetch("/api/line-texts/status", { credentials: "same-origin" });
+  const data = await response.json();
+  if (data.ok) {
+    renderLineDbFromState(data);
+  }
+}
+
+function renderLineDbFromState(state) {
+  lineCountAegyoEl.textContent = Number(state?.counts?.aegyo || 0);
+  lineCountBlameEl.textContent = Number(state?.counts?.blame || 0);
+  lineLastLoadedAtEl.textContent = state?.lastLoadedAt ? formatDateTime(state.lastLoadedAt) : "-";
+  lineDbStateEl.textContent = state?.isLoadedFromRemote ? "시트 연동 중" : "기본값 사용 중";
+}
+
 function renderRouletteConfig(items) {
   rouletteConfigListEl.innerHTML = items.map((item, index) => `
     <div class="card">
@@ -140,10 +181,8 @@ function renderRouletteConfig(items) {
 function renderGaugeControls(items, gauges, gaugeMax) {
   gaugeControlListEl.innerHTML = items.map((item) => `
     <div class="card">
-      <div class="flex-box">
-        <small class="small">${escapeHtml(item.label || item.key || "")}</small>
-        <div class="stat">현재: ${Number(gauges[item.key] || 0)} / ${Number(gaugeMax || 100)}</div>
-      </div>
+      <small>${escapeHtml(item.label || item.key || "")}</small>
+      <div>현재: ${Number(gauges[item.key] || 0)} / ${Number(gaugeMax || 100)}</div>
       <div class="actions">
         <button class="small" data-g-change="${item.key}" data-g-delta="5">+5</button>
         <button class="small" data-g-change="${item.key}" data-g-delta="10">+10</button>
@@ -173,17 +212,18 @@ function renderGaugeControls(items, gauges, gaugeMax) {
 }
 
 function renderPunishments(items) {
-  const visible = items.filter(item => !item.done);
+  const visible = items.filter((item) => !item.done);
 
   if (!visible.length) {
     punishmentListEl.innerHTML = `<div class="card">활성 벌칙 없음</div>`;
     return;
   }
 
-  punishmentListEl.innerHTML = visible.map(item => {
-    const detail = item.detail ? `<div>${escapeHtml(item.detail)}</div>` : "";
+  punishmentListEl.innerHTML = visible.map((item) => {
+    const detail = item.detail ? `<div class="multiline">${escapeHtml(item.detail)}</div>` : "";
     const timer = item.kind === "timer" ? `<div>남은 시간: ${item.remainingSec ?? 0}초</div>` : "";
-    const completeBtn = item.kind === "timer" ? "" : `<button data-complete-id="${item.id}">완료 처리</button>`;
+    const completeBtn =
+      item.kind === "timer" ? "" : `<button data-complete-id="${item.id}">완료 처리</button>`;
 
     return `
       <div class="card">
@@ -209,10 +249,10 @@ function renderLogs(logs) {
     return;
   }
 
-  logListEl.innerHTML = logs.map(log => `
+  logListEl.innerHTML = logs.map((log) => `
     <div class="card">
       <small>${escapeHtml(log.time || "")}</small>
-      <div>${escapeHtml(log.message || "")}</div>
+      <div class="multiline">${escapeHtml(log.message || "")}</div>
     </div>
   `).join("");
 }
@@ -226,6 +266,14 @@ function showNotice(message, isError) {
 
 function hideNotice() {
   authNoticeEl.classList.add("is-hidden");
+}
+
+function formatDateTime(timestamp) {
+  try {
+    return new Date(timestamp).toLocaleString("ko-KR", { hour12: false });
+  } catch {
+    return "-";
+  }
 }
 
 function escapeHtml(value) {
@@ -251,5 +299,7 @@ function escapeHtml(value) {
   }
 
   refreshAuthStatus();
+  refreshLineDbStatus();
   setInterval(refreshAuthStatus, 5000);
+  setInterval(refreshLineDbStatus, 10000);
 })();

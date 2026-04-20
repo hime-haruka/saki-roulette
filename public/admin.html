@@ -64,13 +64,26 @@
         <section class="panel">
           <h2>현재 상태</h2>
           <div class="stats-grid">
-            <div class="stat-card"><span>대기열</span><strong id="queueCount">0</strong></div>
+            <div class="stat-card"><span>큐 길이</span><strong id="queueCount">0</strong></div>
             <div class="stat-card"><span>총 후원 수</span><strong id="donationCount">0</strong></div>
             <div class="stat-card"><span>주사위 횟수</span><strong id="diceCount">0</strong></div>
             <div class="stat-card"><span>현재 위치</span><strong id="positionValue">0</strong></div>
             <div class="stat-card"><span>공겜 스택</span><strong id="horrorStackValue">0</strong></div>
             <div class="stat-card"><span>공겜 확정</span><strong id="horrorConfirmedValue">0</strong></div>
             <div class="stat-card span-2"><span>현재 단계</span><strong id="phaseValue">idle</strong></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>대사 DB</h2>
+            <button id="reloadLineDbBtn" class="small">새로고침</button>
+          </div>
+          <div class="stats-grid line-db-grid">
+            <div class="stat-card"><span>애교 문구 수</span><strong id="lineCountAegyo">0</strong></div>
+            <div class="stat-card"><span>매도 문구 수</span><strong id="lineCountBlame">0</strong></div>
+            <div class="stat-card span-2"><span>마지막 불러온 시각</span><strong id="lineLastLoadedAt">-</strong></div>
+            <div class="stat-card span-2"><span>DB 상태</span><strong id="lineDbState">-</strong></div>
           </div>
         </section>
 
