@@ -67,6 +67,15 @@ function toPublicStatus(state) {
   };
 }
 
+function parseSocketPayload(raw) {
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function requestToken(body) {
   const response = await axios.post(
     `${OPENAPI_BASE}/auth/v1/token`,
@@ -193,7 +202,15 @@ function attachSocketHandlers(io, sessionId, state, socket) {
     addLog(`[CHZZK] 연결 종료: ${reason}`);
   });
 
-  socket.on("SYSTEM", async (message) => {
+  socket.on("SYSTEM", async (rawMessage) => {
+    const message = parseSocketPayload(rawMessage);
+
+    if (typeof message === "string") {
+      addLog(`[CHZZK] SYSTEM 파싱 실패: ${message}`);
+      setError(state, "SYSTEM 메시지 파싱 실패");
+      return;
+    }
+
     try {
       addLog(`[CHZZK] SYSTEM 수신: ${JSON.stringify(message)}`);
     } catch {
@@ -208,7 +225,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
       state.connectedAt = Date.now();
       state.connectState = "authorizing";
       state.lastError = null;
-      addLog("[CHZZK] 세션 연결 완료, 후원 구독 시도");
+      addLog(`[CHZZK] 세션 연결 완료: ${state.sessionKey || "sessionKey 없음"}`);
 
       try {
         const accessToken = await ensureAccessToken(state);
@@ -249,7 +266,14 @@ function attachSocketHandlers(io, sessionId, state, socket) {
     }
   });
 
-  socket.on("DONATION", (message) => {
+  socket.on("DONATION", (rawMessage) => {
+    const message = parseSocketPayload(rawMessage);
+
+    if (typeof message === "string") {
+      addLog(`[CHZZK] DONATION 파싱 실패: ${message}`);
+      return;
+    }
+
     const donorName = String(message?.donatorNickname || "치지직 후원자");
     const amount = Number(message?.payAmount || 0);
     const donationText = String(message?.donationText || "");
