@@ -163,16 +163,64 @@ async function getUserSessionUrl(accessToken) {
 }
 
 async function subscribeDonation(accessToken, sessionKey) {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  try {
+    const response = await axios.post(
+      `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+      null,
+      {
+        headers,
+        params: { sessionKey },
+      }
+    );
+    return unwrapApiResponse(response.data);
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      "";
+
+    addLog(`[CHZZK] 후원 구독 1차 실패(query): ${message}`);
+  }
+
+  try {
+    const body = new URLSearchParams();
+    body.append("sessionKey", sessionKey);
+
+    const response = await axios.post(
+      `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+      body.toString(),
+      {
+        headers: {
+          ...headers,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    return unwrapApiResponse(response.data);
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      "";
+
+    addLog(`[CHZZK] 후원 구독 2차 실패(form): ${message}`);
+  }
+
   const response = await axios.post(
     `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
     { sessionKey },
     {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        ...headers,
         "Content-Type": "application/json",
       },
     }
   );
+
   return unwrapApiResponse(response.data);
 }
 
