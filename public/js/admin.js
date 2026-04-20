@@ -52,17 +52,17 @@ reconnectBtn.addEventListener("click", async () => {
   const response = await fetch("/api/chzzk/reconnect", { method: "POST" });
   const data = await response.json();
   if (!data.ok) showNotice(data.message || "재연결 실패", true);
-  refreshAuthStatus();
+  await refreshAuthStatus();
 });
 
 disconnectBtn.addEventListener("click", async () => {
   await fetch("/api/chzzk/disconnect", { method: "POST" });
-  refreshAuthStatus();
+  await refreshAuthStatus();
 });
 
 logoutBtn.addEventListener("click", async () => {
   await fetch("/api/chzzk/logout", { method: "POST" });
-  refreshAuthStatus();
+  await refreshAuthStatus();
   showNotice("치지직 로그아웃을 완료했습니다.", false);
 });
 
@@ -106,10 +106,16 @@ function formatConnectState(value) {
   switch (String(value || "").toLowerCase()) {
     case "connected":
       return "연결됨";
+    case "authorizing":
+      return "구독 중";
     case "connecting":
       return "연결 중";
     case "subscribed":
       return "연동 중";
+    case "disconnected":
+      return "연결 종료";
+    case "revoked":
+      return "권한 철회";
     case "error":
       return "오류";
     case "idle":

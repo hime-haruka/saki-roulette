@@ -100,10 +100,13 @@ app.post("/api/chzzk/reconnect", async (req, res) => {
       return res.status(500).json({ ok: false, message: `환경변수 누락: ${missingEnv.join(", ")}` });
     }
 
+    addLog("[CHZZK] 재연결 요청 수신");
     const status = await connectChzzkForSession(io, req.sessionID);
     res.json({ ok: true, status });
   } catch (error) {
-    res.status(500).json({ ok: false, message: error?.response?.data?.message || error?.message || "치지직 재연결 실패" });
+    const message = error?.response?.data?.message || error?.message || "치지직 재연결 실패";
+    addLog(`[CHZZK] 재연결 실패: ${message}`);
+    res.status(500).json({ ok: false, message });
   }
 });
 
@@ -146,8 +149,8 @@ app.get("/auth/chzzk/callback", async (req, res) => {
   try {
     const tokenInfo = await exchangeCodeForToken({ code, state });
     applyOAuthToSession(req.sessionID, tokenInfo);
+    addLog("[CHZZK] 로그인 성공, 자동 연동 시도");
     await connectChzzkForSession(io, req.sessionID);
-    addLog("[CHZZK] 로그인 및 자동 연동 완료");
     req.session.oauthState = null;
     res.redirect("/admin.html?chzzk=connected");
   } catch (error) {
