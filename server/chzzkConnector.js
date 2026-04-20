@@ -35,6 +35,7 @@ function getState(sessionId) {
       refreshToken: null,
       accessTokenExpiresAt: 0,
       subscribed: false,
+      chatSubscribed: false,
       connectTimer: null,
     });
   }
@@ -64,6 +65,7 @@ function toPublicStatus(state) {
     lastError: state.lastError,
     lastDonation: state.lastDonation,
     subscribed: !!state.subscribed,
+    chatSubscribed: !!state.chatSubscribed,
   };
 }
 
@@ -162,14 +164,15 @@ async function getUserSessionUrl(accessToken) {
   return content.url;
 }
 
-async function subscribeDonation(accessToken, sessionKey) {
+async function postSessionParam(accessToken, endpoint, sessionKey) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
   };
 
+  // Request Param 명세라서 query 방식 우선
   try {
     const response = await axios.post(
-      `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+      `${OPENAPI_BASE}${endpoint}`,
       null,
       {
         headers,
@@ -178,20 +181,16 @@ async function subscribeDonation(accessToken, sessionKey) {
     );
     return unwrapApiResponse(response.data);
   } catch (error) {
-    const message =
-      error?.response?.data?.message ||
-      error?.message ||
-      "";
-
-    addLog(`[CHZZK] 후원 구독 1차 실패(query): ${message}`);
+    const message = error?.response?.data?.message || error?.message || "query 방식 실패";
+    addLog(`[CHZZK] ${endpoint} query 실패: ${message}`);
   }
 
+  // form 방식 fallback
   try {
     const body = new URLSearchParams();
     body.append("sessionKey", sessionKey);
-
     const response = await axios.post(
-      `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+      `${OPENAPI_BASE}${endpoint}`,
       body.toString(),
       {
         headers: {
@@ -202,16 +201,13 @@ async function subscribeDonation(accessToken, sessionKey) {
     );
     return unwrapApiResponse(response.data);
   } catch (error) {
-    const message =
-      error?.response?.data?.message ||
-      error?.message ||
-      "";
-
-    addLog(`[CHZZK] 후원 구독 2차 실패(form): ${message}`);
+    const message = error?.response?.data?.message || error?.message || "form 방식 실패";
+    addLog(`[CHZZK] ${endpoint} form 실패: ${message}`);
   }
 
+  // json 방식 최종 fallback
   const response = await axios.post(
-    `${OPENAPI_BASE}/open/v1/sessions/events/subscribe/donation`,
+    `${OPENAPI_BASE}${endpoint}`,
     { sessionKey },
     {
       headers: {
@@ -220,11 +216,33 @@ async function subscribeDonation(accessToken, sessionKey) {
       },
     }
   );
-
   return unwrapApiResponse(response.data);
 }
 
+async function subscribeDonation(accessToken, sessionKey) {
+  return postSessionParam(accessToken, "/open/v1/sessions/events/subscribe/donation", sessionKey);
+}
+
+async function subscribeChat(accessToken, sessionKey) {
+  return postSessionParam(accessToken, "/open/v1/sessions/events/subscribe/chat", sessionKey);
+}
+
+function attachRawEventLogger(socket) {
+  const originalOnevent = socket.onevent;
+  socket.onevent = function (packet) {
+    try {
+      const [eventName, payload] = packet.data || [];
+      addLog(`[CHZZK] RAW EVENT: ${String(eventName)} / ${JSON.stringify(payload)}`);
+    } catch {
+      addLog("[CHZZK] RAW EVENT 수신");
+    }
+    originalOnevent.call(this, packet);
+  };
+}
+
 function attachSocketHandlers(io, sessionId, state, socket) {
+  attachRawEventLogger(socket);
+
   socket.on("connect", () => {
     addLog("[CHZZK] 소켓 connect 이벤트 수신");
   });
@@ -247,6 +265,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
       state.connectState = "disconnected";
     }
     state.subscribed = false;
+    state.chatSubscribed = false;
     addLog(`[CHZZK] 연결 종료: ${reason}`);
   });
 
@@ -277,6 +296,16 @@ function attachSocketHandlers(io, sessionId, state, socket) {
 
       try {
         const accessToken = await ensureAccessToken(state);
+
+        // 디버깅용으로 chat도 같이 구독
+        try {
+          await subscribeChat(accessToken, state.sessionKey);
+          addLog("[CHZZK] 채팅 구독 요청 완료");
+        } catch (error) {
+          const msg = error?.response?.data?.message || error?.message || "채팅 구독 실패";
+          addLog(`[CHZZK] 채팅 구독 실패: ${msg}`);
+        }
+
         await subscribeDonation(accessToken, state.sessionKey);
         addLog("[CHZZK] 후원 구독 요청 완료");
       } catch (error) {
@@ -287,7 +316,12 @@ function attachSocketHandlers(io, sessionId, state, socket) {
     }
 
     if (type === "subscribed") {
-      if (message?.data?.eventType === "DONATION") {
+      const eventType = message?.data?.eventType;
+      if (eventType === "CHAT") {
+        state.chatSubscribed = true;
+        addLog("[CHZZK] CHAT 구독 완료");
+      }
+      if (eventType === "DONATION") {
         state.subscribed = true;
         state.connectState = "connected";
         state.channelId = message?.data?.channelId || null;
@@ -298,7 +332,12 @@ function attachSocketHandlers(io, sessionId, state, socket) {
     }
 
     if (type === "unsubscribed") {
-      if (message?.data?.eventType === "DONATION") {
+      const eventType = message?.data?.eventType;
+      if (eventType === "CHAT") {
+        state.chatSubscribed = false;
+        addLog("[CHZZK] CHAT 구독 해제");
+      }
+      if (eventType === "DONATION") {
         state.subscribed = false;
         state.connectState = "idle";
         addLog("[CHZZK] DONATION 구독 해제");
@@ -308,6 +347,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
 
     if (type === "revoked") {
       state.subscribed = false;
+      state.chatSubscribed = false;
       state.connectState = "revoked";
       state.lastError = "치지직 권한이 철회되었습니다. 다시 로그인해 주세요.";
       addLog("[CHZZK] 권한 철회 감지");
@@ -336,6 +376,18 @@ function attachSocketHandlers(io, sessionId, state, socket) {
 
     addLog(`[CHZZK] ${donorName} ${amount.toLocaleString()}원 후원 수신`);
     enqueueDonation(io, { donorName, amount });
+  });
+
+  socket.on("CHAT", (rawMessage) => {
+    const message = parseSocketPayload(rawMessage);
+    if (typeof message === "string") {
+      addLog(`[CHZZK] CHAT 파싱 실패: ${message}`);
+      return;
+    }
+
+    const nickname = String(message?.profile?.nickname || message?.nickname || "채팅 유저");
+    const content = String(message?.content || "");
+    addLog(`[CHZZK] CHAT 수신: ${nickname} / ${content}`);
   });
 }
 
@@ -367,6 +419,7 @@ export async function connectChzzkForSession(io, sessionId) {
   state.connectedAt = null;
   state.lastError = null;
   state.subscribed = false;
+  state.chatSubscribed = false;
 
   addLog("[CHZZK] 세션 URL 요청 시작");
   const sessionUrl = await getUserSessionUrl(accessToken);
@@ -418,6 +471,7 @@ export async function disconnectChzzkForSession(sessionId, { revoke = false } = 
     refreshToken: revoke ? null : state.refreshToken,
     accessTokenExpiresAt: revoke ? 0 : state.accessTokenExpiresAt,
     subscribed: false,
+    chatSubscribed: false,
     connectTimer: null,
   });
 
@@ -432,6 +486,7 @@ export function clearSessionOauth(sessionId) {
   state.refreshToken = null;
   state.accessTokenExpiresAt = 0;
   state.subscribed = false;
+  state.chatSubscribed = false;
   state.connectState = "idle";
 }
 
