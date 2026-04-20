@@ -5,7 +5,6 @@ import { enqueueDonation } from "./eventBus.js";
 
 const OPENAPI_BASE = process.env.CHZZK_OPENAPI_BASE || "https://openapi.chzzk.naver.com";
 const SESSION_STATUS = new Map();
-const CONNECT_TIMEOUT_MS = 15000;
 
 function unwrapApiResponse(data) {
   if (data && typeof data === "object" && "content" in data) {
@@ -47,6 +46,11 @@ function clearConnectTimer(state) {
     clearTimeout(state.connectTimer);
     state.connectTimer = null;
   }
+}
+
+function setError(state, message) {
+  state.connectState = "error";
+  state.lastError = message;
 }
 
 function toPublicStatus(state) {
@@ -163,31 +167,26 @@ async function subscribeDonation(accessToken, sessionKey) {
   return unwrapApiResponse(response.data);
 }
 
-function setError(state, message) {
-  state.connectState = "error";
-  state.lastError = message;
-}
-
 function attachSocketHandlers(io, sessionId, state, socket) {
   socket.on("connect", () => {
-    addLog(`[CHZZK] 소켓 연결 성공 (${sessionId.slice(0, 8)})`);
+    addLog("[CHZZK] 소켓 connect 이벤트 수신");
   });
 
   socket.on("connect_error", (error) => {
     clearConnectTimer(state);
     setError(state, error?.message || "치지직 세션 연결 실패");
-    addLog(`[CHZZK] 연결 실패: ${state.lastError}`);
+    addLog(`[CHZZK] connect_error: ${state.lastError}`);
   });
 
   socket.on("error", (error) => {
     clearConnectTimer(state);
     setError(state, error?.message || "치지직 소켓 오류");
-    addLog(`[CHZZK] 소켓 오류: ${state.lastError}`);
+    addLog(`[CHZZK] socket error: ${state.lastError}`);
   });
 
   socket.on("disconnect", (reason) => {
     clearConnectTimer(state);
-    if (state.connectState !== "idle") {
+    if (state.connectState !== "idle" && state.connectState !== "error") {
       state.connectState = "disconnected";
     }
     state.subscribed = false;
@@ -195,20 +194,25 @@ function attachSocketHandlers(io, sessionId, state, socket) {
   });
 
   socket.on("SYSTEM", async (message) => {
+    try {
+      addLog(`[CHZZK] SYSTEM 수신: ${JSON.stringify(message)}`);
+    } catch {
+      addLog("[CHZZK] SYSTEM 수신");
+    }
+
     const type = message?.type;
-    addLog(`[CHZZK] SYSTEM 수신: ${type || "unknown"}`);
 
     if (type === "connected") {
       clearConnectTimer(state);
       state.sessionKey = message?.data?.sessionKey || null;
-      state.connectState = "authorizing";
       state.connectedAt = Date.now();
-      addLog("[CHZZK] 세션 연결 완료");
+      state.connectState = "authorizing";
+      state.lastError = null;
+      addLog("[CHZZK] 세션 연결 완료, 후원 구독 시도");
 
       try {
         const accessToken = await ensureAccessToken(state);
         await subscribeDonation(accessToken, state.sessionKey);
-        state.lastError = null;
         addLog("[CHZZK] 후원 구독 요청 완료");
       } catch (error) {
         setError(state, error?.response?.data?.message || error?.message || "후원 구독 실패");
@@ -223,7 +227,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
         state.connectState = "connected";
         state.channelId = message?.data?.channelId || null;
         state.lastError = null;
-        addLog("[CHZZK] 후원 이벤트 구독 완료");
+        addLog("[CHZZK] DONATION 구독 완료");
       }
       return;
     }
@@ -232,7 +236,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
       if (message?.data?.eventType === "DONATION") {
         state.subscribed = false;
         state.connectState = "idle";
-        addLog("[CHZZK] 후원 이벤트 구독 해제");
+        addLog("[CHZZK] DONATION 구독 해제");
       }
       return;
     }
@@ -241,7 +245,7 @@ function attachSocketHandlers(io, sessionId, state, socket) {
       state.subscribed = false;
       state.connectState = "revoked";
       state.lastError = "치지직 권한이 철회되었습니다. 다시 로그인해 주세요.";
-      addLog("[CHZZK] 권한 회수 감지");
+      addLog("[CHZZK] 권한 철회 감지");
     }
   });
 
@@ -286,21 +290,21 @@ export async function connectChzzkForSession(io, sessionId) {
 
   clearConnectTimer(state);
   state.connectState = "connecting";
-  state.subscribed = false;
   state.sessionKey = null;
   state.channelId = null;
+  state.connectedAt = null;
   state.lastError = null;
+  state.subscribed = false;
 
   addLog("[CHZZK] 세션 URL 요청 시작");
   const sessionUrl = await getUserSessionUrl(accessToken);
   addLog("[CHZZK] 세션 URL 발급 완료");
 
-  const socket = socketIoClient(sessionUrl, {
-    transports: ["websocket"],
-    forceNew: true,
+  const socket = socketIoClient.connect(sessionUrl, {
     reconnection: false,
-    autoConnect: false,
-    timeout: 10000,
+    "force new connection": true,
+    "connect timeout": 3000,
+    transports: ["websocket"],
   });
 
   state.socket = socket;
@@ -314,11 +318,9 @@ export async function connectChzzkForSession(io, sessionId) {
         socket.disconnect();
       } catch {}
     }
-  }, CONNECT_TIMEOUT_MS);
+  }, 8000);
 
   addLog("[CHZZK] 소켓 연결 시도");
-  socket.connect();
-
   return toPublicStatus(state);
 }
 
