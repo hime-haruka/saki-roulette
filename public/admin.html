@@ -12,8 +12,8 @@
       <button id="resetAllBtn" class="ghost">전체 초기화</button>
     </header>
 
-    <section class="auth-panel panel">
-      <div class="auth-title-wrap">
+    <section class="auth-panel panel auth-panel-compact">
+      <div class="auth-title-wrap compact">
         <div>
           <h2>치지직 연동</h2>
         </div>
@@ -25,14 +25,15 @@
         </div>
       </div>
       <div id="authNotice" class="notice-box is-hidden"></div>
-      <div class="auth-status-grid">
-        <div class="stat-card"><span>로그인</span><strong id="authLoggedIn">-</strong></div>
-        <div class="stat-card"><span>연결 상태</span><strong id="authConnectState">-</strong></div>
-        <div class="stat-card"><span>세션 키</span><strong id="authSessionKey">-</strong></div>
-        <div class="stat-card"><span>채널 ID</span><strong id="authChannelId">-</strong></div>
-        <div class="stat-card span-2"><span>마지막 오류</span><strong id="authLastError">-</strong></div>
-        <div class="stat-card span-2"><span>마지막 실제 후원</span><strong id="authLastDonation">-</strong></div>
-        <div class="stat-card span-2"><span>등록할 콜백 주소</span><strong id="authRedirectUri">-</strong></div>
+      <div class="auth-status-grid auth-status-grid-compact">
+        <div class="stat-card">
+          <span>로그인</span>
+          <strong id="authLoggedIn">-</strong>
+        </div>
+        <div class="stat-card">
+          <span>연결 상태</span>
+          <strong id="authConnectState">-</strong>
+        </div>
       </div>
     </section>
 
@@ -63,7 +64,7 @@
         <section class="panel">
           <h2>현재 상태</h2>
           <div class="stats-grid">
-            <div class="stat-card"><span>큐 길이</span><strong id="queueCount">0</strong></div>
+            <div class="stat-card"><span>대기열</span><strong id="queueCount">0</strong></div>
             <div class="stat-card"><span>총 후원 수</span><strong id="donationCount">0</strong></div>
             <div class="stat-card"><span>주사위 횟수</span><strong id="diceCount">0</strong></div>
             <div class="stat-card"><span>현재 위치</span><strong id="positionValue">0</strong></div>

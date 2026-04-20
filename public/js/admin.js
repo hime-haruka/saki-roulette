@@ -21,11 +21,6 @@ const gaugeControlListEl = document.getElementById("gaugeControlList");
 const authNoticeEl = document.getElementById("authNotice");
 const authLoggedInEl = document.getElementById("authLoggedIn");
 const authConnectStateEl = document.getElementById("authConnectState");
-const authSessionKeyEl = document.getElementById("authSessionKey");
-const authChannelIdEl = document.getElementById("authChannelId");
-const authLastErrorEl = document.getElementById("authLastError");
-const authLastDonationEl = document.getElementById("authLastDonation");
-const authRedirectUriEl = document.getElementById("authRedirectUri");
 const reconnectBtn = document.getElementById("reconnectBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -62,7 +57,7 @@ disconnectBtn.addEventListener("click", async () => {
 logoutBtn.addEventListener("click", async () => {
   await fetch("/api/chzzk/logout", { method: "POST" });
   refreshAuthStatus();
-  showNotice("치지직 로그아웃을 완료했어.", false);
+  showNotice("치지직 로그아웃을 완료했습니다.", false);
 });
 
 socket.on("state:update", (state) => {
@@ -81,23 +76,40 @@ socket.on("state:update", (state) => {
   renderLogs(state.logs || []);
 });
 
+function formatConnectState(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "connected":
+      return "연결됨";
+    case "connecting":
+      return "연결 중";
+    case "subscribed":
+      return "연동 중";
+    case "error":
+      return "오류";
+    case "idle":
+    default:
+      return "대기";
+  }
+}
+
 async function refreshAuthStatus() {
   const response = await fetch("/api/chzzk/status", { credentials: "same-origin" });
   const data = await response.json();
 
   authLoggedInEl.textContent = data.isLoggedIn ? "완료" : "미완료";
-  authConnectStateEl.textContent = data.connectState || "idle";
-  authSessionKeyEl.textContent = data.sessionKey || "-";
-  authChannelIdEl.textContent = data.channelId || "-";
-  authLastErrorEl.textContent = data.lastError || "-";
-  authRedirectUriEl.textContent = data.redirectUri || "-";
-  authLastDonationEl.textContent = data.lastDonation
-    ? `${data.lastDonation.donorName} / ${Number(data.lastDonation.amount || 0).toLocaleString()}원`
-    : "-";
+  authConnectStateEl.textContent = formatConnectState(data.connectState || "idle");
 
   if (Array.isArray(data.missingEnv) && data.missingEnv.length) {
-    showNotice(`환경변수가 누락됐어: ${data.missingEnv.join(", ")}`, true);
+    showNotice(`환경 변수가 누락되었습니다.: ${data.missingEnv.join(", ")}`, true);
+    return;
   }
+
+  if (data.lastError) {
+    showNotice(data.lastError, true);
+    return;
+  }
+
+  hideNotice();
 }
 
 function renderRouletteConfig(items) {
@@ -128,8 +140,10 @@ function renderRouletteConfig(items) {
 function renderGaugeControls(items, gauges, gaugeMax) {
   gaugeControlListEl.innerHTML = items.map((item) => `
     <div class="card">
-      <small>${escapeHtml(item.label || item.key || "")}</small>
-      <div>현재: ${Number(gauges[item.key] || 0)} / ${Number(gaugeMax || 100)}</div>
+      <div class="flex-box">
+        <small class="small">${escapeHtml(item.label || item.key || "")}</small>
+        <div class="stat">현재: ${Number(gauges[item.key] || 0)} / ${Number(gaugeMax || 100)}</div>
+      </div>
       <div class="actions">
         <button class="small" data-g-change="${item.key}" data-g-delta="5">+5</button>
         <button class="small" data-g-change="${item.key}" data-g-delta="10">+10</button>
@@ -229,9 +243,9 @@ function escapeHtml(value) {
   const message = params.get("message");
 
   if (chzzk === "connected") {
-    showNotice("치지직 로그인과 실제 후원 연동이 완료됐어.", false);
+    showNotice("후원 연동이 완료되었습니다.", false);
   } else if (chzzk === "error") {
-    showNotice(message || "치지직 로그인 처리 중 오류가 발생했어.", true);
+    showNotice(message || "치지직 로그인 처리 중 오류가 발생했습니다.", true);
   } else {
     hideNotice();
   }
